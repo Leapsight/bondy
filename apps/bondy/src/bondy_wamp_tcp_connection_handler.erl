@@ -35,7 +35,7 @@
 -record(state, {
     socket                  ::  gen_tcp:socket(),
     peername                ::  binary(),
-    transport               ::  module(),
+    transport               ::  module(),  %% ranch_tcp | ranch_ssl
     frame_type              ::  frame_type(),
     encoding                ::  atom(),
     max_len                 ::  pos_integer(),
@@ -45,7 +45,7 @@
     hibernate = false       ::  boolean(),
     start_time              ::  integer(),
     protocol_state          ::  bondy_wamp_protocol:state() | undefined,
-    active_n = once          ::  once | -32768..32767,
+    active_n = once         ::  once | -32768..32767,
     buffer = <<>>           ::  binary(),
     shutdown_reason         ::  term() | undefined
 }).
@@ -123,6 +123,14 @@ handle_cast(Msg, State) ->
     _ = lager:info("Received unknown cast; message=~p", [Msg]),
     {noreply, State, ?TIMEOUT}.
 
+
+handle_info({inet_reply, _, ok}, State) ->
+    %% see send_frame/4 below
+    {noreply, State, ?TIMEOUT};
+
+handle_info({inet_reply, _, Status}, State) ->
+    %% see send_frame/4 below
+    {stop, {send_failed, Status}, State};
 
 handle_info(
     {tcp, Socket, <<?RAW_MAGIC:8, MaxLen:4, Encoding:4, _:16>>},
@@ -459,46 +467,6 @@ init_wamp(Len, Enc, St0) ->
     end.
 
 
-
-%% @private
--spec send(binary() | list(), state()) -> ok | {error, any()}.
-
-send(L, St) when is_list(L) ->
-    lists:foreach(fun(Bin) -> send(Bin, St) end, L);
-
-send(Bin, St) ->
-    send_frame(?RAW_FRAME(Bin), St).
-
-
-%% @private
--spec send_frame(binary(), state()) -> ok | {error, any()}.
-
-send_frame(Frame, St) when is_binary(Frame) ->
-    (St#state.transport):send(St#state.socket, Frame).
-
-
-%% @private
-send_ping(St) ->
-    send_ping(integer_to_binary(erlang:system_time(microsecond)), St).
-
-
-%% -----------------------------------------------------------------------------
-%% @private
-%% @doc Sends a ping message with a reference() as a payload to the client and
-%% sent ourselves a ping_timeout message in the future.
-%% @end
-%% -----------------------------------------------------------------------------
-send_ping(Bin, St0) ->
-    ok = send_frame(<<0:5, 1:3, (byte_size(Bin)):24, Bin/binary>>, St0),
-    Timeout = bondy_config:get(ping_timeout, ?PING_TIMEOUT),
-    TimerRef = erlang:send_after(Timeout, self(), ping_timeout),
-    St1 = St0#state{
-        ping_sent = {true, Bin, TimerRef},
-        ping_attempts = St0#state.ping_attempts + 1
-    },
-    {ok, St1}.
-
-
 %% -----------------------------------------------------------------------------
 %% @private
 %% @doc
@@ -547,7 +515,6 @@ validate_encoding(N) ->
     end.
 
 
-
 %% -----------------------------------------------------------------------------
 %% @private
 %% @doc
@@ -564,14 +531,10 @@ error_number(maximum_message_length_unacceptable) ->?RAW_ERROR(2);
 error_number(use_of_reserved_bits) ->?RAW_ERROR(3);
 error_number(maximum_connection_count_reached) ->?RAW_ERROR(4).
 
-
 %% error_reason(1) -> serializer_unsupported;
 %% error_reason(2) -> maximum_message_length_unacceptable;
 %% error_reason(3) -> use_of_reserved_bits;
 %% error_reason(4) -> maximum_connection_count_reached.
-
-
-
 
 %% @private
 log(Level, Format, Args, #state{protocol_state = undefined})
@@ -685,3 +648,103 @@ maybe_error({error, Reason}) ->
 
 maybe_error(Term) ->
     Term.
+
+
+%% @private
+-spec send(binary() | iolist(), state()) -> ok | {error, any()}.
+
+send(L, #state{} = St) when is_list(L) ->
+    lists:foreach(fun(Bin) -> send(Bin, St) end, L);
+
+send(Bin, #state{} = St) ->
+    send_frame(?RAW_FRAME(Bin), St).
+
+
+%% @private
+send_ping(#state{} = St) ->
+    send_ping(integer_to_binary(erlang:system_time(microsecond)), St).
+
+
+%% -----------------------------------------------------------------------------
+%% @private
+%% @doc Sends a ping message with a reference() as a payload to the client and
+%% sent ourselves a ping_timeout message in the future.
+%% @end
+%% -----------------------------------------------------------------------------
+send_ping(Bin, #state{} = St0) ->
+    ok = send_frame(<<0:5, 1:3, (byte_size(Bin)):24, Bin/binary>>, St0),
+    Timeout = bondy_config:get(ping_timeout, ?PING_TIMEOUT),
+    TimerRef = erlang:send_after(Timeout, self(), ping_timeout),
+    St1 = St0#state{
+        ping_sent = {true, Bin, TimerRef},
+        ping_attempts = St0#state.ping_attempts + 1
+    },
+    {ok, St1}.
+
+
+%% TODO do not send immeditely, buffer until we get closer to MSS (1460 bytes)
+%% A maximum transmission unit (MTU) is the largest packet or frame size in
+%% bytes that can be sent in a packet- or frame-based network e.g. TCP.
+%% TCP uses the MTU to determine the maximum size of each packet in any
+%% transmission. MTU is usually associated with the Ethernet protocol, where a
+%% 1500-byte packet is the largest allowed in it (and hence over most of the
+%% internet).
+%% Larger packets will use IPv4 fragmentation, which divides the datagram into
+%% pieces. Each piece is small enough to pass over the single link that it is
+%% being fragmented for, using the MTU parameter configured for that interface.
+%% The best way to avoid fragmentation is to adjust the maximum segment size or
+%% TCP MSS so the segment will adjust its size before reaching the data link
+%% layer.
+%% The total value of the IP and the TCP header is 40 bytes and mandatory for
+%% each packet, which leaves us 1460 bytes for our data.
+
+%% @private
+-spec send_frame(binary(), state()) -> ok | {error, any()}.
+
+send_frame(Frame, #state{} = St) when is_binary(Frame) ->
+    send_frame(St#state.transport, St#state.socket, Frame).
+
+
+%% @private
+send_frame(Transport, Socket, Data) ->
+    send_frame(Transport, Socket, Data, []).
+
+
+%% -----------------------------------------------------------------------------
+%% @private
+%% @doc
+%% The following is lifted from
+%% https://github.com/erlang/otp/blob/master/erts/preloaded/src/prim_inet.erl
+%%
+%% We do this to avoid the selective receive in send/3 as it can take a while
+%% when the inbox has many messages.
+%% TODO not sure how this will work with the new Socket API.
+%% @end
+%% -----------------------------------------------------------------------------
+
+send_frame(ranch_tcp, Socket, Data, Opts) when is_port(Socket) ->
+    %% This call is still synchronous
+    %% Notice that any process can send to a port using Port ! {PortOwner,
+    %% {command, Data}} as if it itself was the port owner.
+
+    %% If the port is busy, the calling process is suspended until the port is
+    %% not busy any more unles the option nosuspend is passed.
+    try erlang:port_command(Socket, Data, Opts) of
+        false ->
+            %% Port busy and nosuspend option passed
+            %% The calling process is not suspended,
+            %% the port command was aborted
+            {error, busy};
+        true ->
+            %% Here is where the original code does a selective receive
+            %% to find the message {inet_reply, Socket, State} as we do not to
+            %% the receive here, we will get it through gen_server's
+            %% handle_info callback
+            ok
+    catch
+	    error:_ ->
+	        {error, einval}
+    end;
+
+send_frame(Transport, Socket, Data, _Opts) ->
+    Transport:send(Socket, Data).
