@@ -35,6 +35,7 @@
 -record(state, {
     socket                  ::  gen_tcp:socket(),
     peername                ::  binary(),
+    real_peer               ::  bondy_session:peer(),
     transport               ::  module(),  %% ranch_tcp | ranch_ssl
     frame_type              ::  frame_type(),
     encoding                ::  atom(),
@@ -92,22 +93,18 @@ init({Ref, Socket, Transport, _Opts0}) ->
         transport = Transport
     },
 
-    %% We must call ranch:accept_ack/1 before doing any socket operation.
-    %% This will ensure the connection process is the owner of the socket.
-    %% It expects the listener’s name as argument.
-    ok = ranch:accept_ack(Ref),
-
-    Opts = bondy_config:get([Ref, socket_opts], []),
-    Res = Transport:setopts(
-        Socket, [{active, active_n(St0)}, {packet, 0} | Opts]
-    ),
-    ok = maybe_error(Res),
-
+    {ok, Socket, Info} = ranch_handshake(Ref, Transport),
     {ok, Peername} = inet:peername(Socket),
+
+    RealPeer = case maps:find(src_address, Info) of
+        {ok, IP} -> {IP, maps:get(src_port, Info)};
+        error -> undefined
+    end,
 
     St1 = St0#state{
         socket = Socket,
-        peername = inet_utils:peername_to_binary(Peername)
+        peername = inet_utils:peername_to_binary(Peername),
+        real_peer = RealPeer
     },
 
     ok = socket_opened(St1),
@@ -259,6 +256,43 @@ code_change(_OldVsn, State, _Extra) ->
 %% =============================================================================
 %% PRIVATE
 %% =============================================================================
+
+
+
+-spec ranch_handshake(atom(), module()) ->
+    {ok, Socket :: port(), Info :: map()}.
+
+ranch_handshake(Ref, Transport) ->
+    %% We must call ranch:accept_ack/1 before doing any socket operation.
+    %% This will ensure the connection process is the owner of the socket.
+    %% It expects the listener’s name as argument.
+    % ok = ranch:accept_ack(Ref),
+
+    Info = case bondy_config:get([Ref, proxy_protocol_enabled], false) of
+        true ->
+            {ok, ProxyInfo} = maybe_error(ranch:recv_proxy_header(Ref, 1000)),
+            ProxyInfo;
+        false ->
+            #{}
+    end,
+
+    Opts = bondy_config:get([Ref, socket_opts], []),
+
+    SocketOpts = [{active, once}, {packet, 0} | Opts],
+
+    {ok, Socket} = ranch:handshake(Ref, SocketOpts),
+    ok = maybe_error(Transport:setopts(Socket, SocketOpts)),
+
+    {ok, Socket, Info}.
+
+
+%% @private
+maybe_error({error, Reason}) ->
+    error(Reason);
+
+maybe_error(Term) ->
+    Term.
+
 
 
 %% @private
@@ -643,14 +677,6 @@ reset_inet_opts(#state{} = State) ->
 
 
 %% @private
-maybe_error({error, Reason}) ->
-    error(Reason);
-
-maybe_error(Term) ->
-    Term.
-
-
-%% @private
 -spec send(binary() | iolist(), state()) -> ok | {error, any()}.
 
 send(L, #state{} = St) when is_list(L) ->
@@ -748,3 +774,4 @@ send_frame(ranch_tcp, Socket, Data, Opts) when is_port(Socket) ->
 
 send_frame(Transport, Socket, Data, _Opts) ->
     Transport:send(Socket, Data).
+
