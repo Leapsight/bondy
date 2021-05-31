@@ -227,7 +227,6 @@ setup_event_handlers() ->
 %% @end
 %% -----------------------------------------------------------------------------
 setup_wamp_subscriptions() ->
-    %% TODO move this into each app when we finish restructuring
     Opts = #{match => <<"exact">>},
     _ = bondy:subscribe(
         ?BONDY_PRIV_REALM_URI,
