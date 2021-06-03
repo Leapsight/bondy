@@ -56,8 +56,8 @@
 
 
 -record(state, {
-    frame_type              ::  bondy_wamp_protocol:frame_type(),
-    protocol_state          ::  bondy_wamp_protocol:state() | undefined,
+    frame_type              ::  bondy_wamp_fsm:frame_type(),
+    protocol_state          ::  bondy_wamp_fsm:state() | undefined,
     auth_token              ::  map(),
     hibernate = false       ::  boolean(),
     ping_enabled            ::  boolean(),
@@ -202,7 +202,7 @@ websocket_handle({pong, <<"bondy">>}, St0) ->
 
 
 websocket_handle({T, Data}, #state{frame_type = T} = St0) ->
-    case bondy_wamp_protocol:handle_inbound(Data, St0#state.protocol_state) of
+    case bondy_wamp_fsm:handle_inbound(Data, St0#state.protocol_state) of
         {ok, PSt} ->
             {ok, St0#state{protocol_state = PSt}};
         {reply, L, PSt} ->
@@ -344,7 +344,7 @@ terminate(Other, _Req, St) ->
 
 %% @private
 handle_outbound(T, M, St) ->
-    case bondy_wamp_protocol:handle_outbound(M, St#state.protocol_state) of
+    case bondy_wamp_fsm:handle_outbound(M, St#state.protocol_state) of
         {ok, Bin, PSt} ->
             {reply, frame(T, Bin), St#state{protocol_state = PSt}};
         {stop, PSt} ->
@@ -376,7 +376,7 @@ do_init({ws, FrameType, _Enc} = Subproto, BinProto, Req0, State) ->
     AllOpts = maps_utils:from_property_list(bondy_config:get(wamp_websocket)),
     {PingOpts, Opts} = maps:take(ping, AllOpts),
 
-    case bondy_wamp_protocol:init(Subproto, Peer, ProtocolOpts) of
+    case bondy_wamp_fsm:init(Subproto, Peer, ProtocolOpts) of
         {ok, CBState} ->
             St = #state{
                 frame_type = FrameType,
@@ -402,7 +402,7 @@ do_init({ws, FrameType, _Enc} = Subproto, BinProto, Req0, State) ->
 %% @end
 %% -----------------------------------------------------------------------------
 -spec select_subprotocol(list(binary()) | undefined) ->
-    {ok, bondy_wamp_protocol:subprotocol(), binary()}
+    {ok, bondy_wamp_fsm:subprotocol(), binary()}
     | no_return().
 
 select_subprotocol(undefined) ->
@@ -411,7 +411,7 @@ select_subprotocol(undefined) ->
 select_subprotocol(L) when is_list(L) ->
     try
         Fun = fun(X) ->
-            case bondy_wamp_protocol:validate_subprotocol(X) of
+            case bondy_wamp_fsm:validate_subprotocol(X) of
                 {ok, SP} ->
                     throw({break, SP, X});
                 {error, invalid_subprotocol} ->
@@ -432,7 +432,7 @@ do_terminate(undefined) ->
 
 do_terminate(St) ->
     ok = cancel_timer(St#state.ping_interval_ref),
-    bondy_wamp_protocol:terminate(St#state.protocol_state).
+    bondy_wamp_fsm:terminate(St#state.protocol_state).
 
 
 
@@ -465,12 +465,12 @@ when is_binary(Prefix) orelse is_list(Prefix), is_list(Head) ->
         >>
     ]),
 
-    Ctxt = bondy_wamp_protocol:context(St#state.protocol_state),
+    Ctxt = bondy_wamp_fsm:context(St#state.protocol_state),
 
     Tail = [
-        bondy_wamp_protocol:session_id(St#state.protocol_state),
+        bondy_wamp_fsm:session_id(St#state.protocol_state),
         bondy_context:peername(Ctxt),
-        bondy_wamp_protocol:agent(St#state.protocol_state),
+        bondy_wamp_fsm:agent(St#state.protocol_state),
         St#state.frame_type,
         bondy_context:encoding(Ctxt)
     ],

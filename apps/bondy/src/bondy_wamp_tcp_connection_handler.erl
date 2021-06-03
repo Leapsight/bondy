@@ -35,7 +35,7 @@
 -record(state, {
     socket                  ::  gen_tcp:socket(),
     peername                ::  binary(),
-    real_peer               ::  bondy_session:peer(),
+    real_peername           ::  binary() | undefined,
     transport               ::  module(),  %% ranch_tcp | ranch_ssl
     frame_type              ::  frame_type(),
     encoding                ::  atom(),
@@ -45,7 +45,7 @@
     ping_max_attempts = 2   ::  non_neg_integer(),
     hibernate = false       ::  boolean(),
     start_time              ::  integer(),
-    protocol_state          ::  bondy_wamp_protocol:state() | undefined,
+    protocol_state          ::  bondy_wamp_fsm:state() | undefined,
     active_n = once         ::  once | -32768..32767,
     buffer = <<>>           ::  binary(),
     shutdown_reason         ::  term() | undefined
@@ -54,7 +54,7 @@
 
 
 -export([start_link/4]).
-
+-export([send/4]).
 
 -export([init/1]).
 -export([handle_call/3]).
@@ -81,6 +81,23 @@ start_link(Ref, Socket, Transport, Opts) ->
 
 
 
+%% -----------------------------------------------------------------------------
+%% @doc Send data directly to a socket.
+%% @end
+%% -----------------------------------------------------------------------------
+-spec send(
+    Transport :: transport(),
+    Socket :: port(),
+    Data :: iodata(),
+    Opts :: list()) ->
+    ok | {error, busy | einval}.
+
+send(Transport, Socket, Data, Opts) ->
+    send_frame(Transport, Socket, ?RAW_FRAME(Data), Opts).
+
+
+
+
 %% =============================================================================
 %% GEN SERVER CALLBACKS
 %% =============================================================================
@@ -93,21 +110,22 @@ init({Ref, Socket, Transport, _Opts0}) ->
         transport = Transport
     },
 
-    {ok, Socket, Info} = ranch_handshake(Ref, Transport),
-    {ok, Peername} = inet:peername(Socket),
-
-    RealPeer = case maps:find(src_address, Info) of
-        {ok, IP} -> {IP, maps:get(src_port, Info)};
-        error -> undefined
+    St1 = case ranch_handshake(Ref, Transport) of
+        {ok, Socket, #{src_address := IP, src_port := Port}} ->
+            St0#state{
+                socket = Socket,
+                peername = peername(Socket),
+                real_peername = inet_utils:peername_to_binary({IP, Port})
+            };
+        {ok, Socket, _Info} ->
+            St0#state{
+                socket = Socket,
+                peername = peername(Socket)
+            }
     end,
 
-    St1 = St0#state{
-        socket = Socket,
-        peername = inet_utils:peername_to_binary(Peername),
-        real_peer = RealPeer
-    },
-
     ok = socket_opened(St1),
+
     gen_server:enter_loop(?MODULE, [], St1, ?TIMEOUT).
 
 
@@ -241,7 +259,7 @@ when T =/= undefined andalso S =/= undefined ->
     terminate(Reason, State#state{transport = undefined, socket = undefined});
 
 terminate(Reason, #state{protocol_state = P} = State) when P =/= undefined ->
-    ok = bondy_wamp_protocol:terminate(P),
+    ok = bondy_wamp_fsm:terminate(P),
     terminate(Reason, State#state{protocol_state = undefined});
 
 terminate(_, _) ->
@@ -321,7 +339,7 @@ when byte_size(Data) >= Len ->
     %% We received a WAMP message
     %% Len is the number of octets after serialization
     <<Mssg:Len/binary, Rest/binary>> = Data,
-    case bondy_wamp_protocol:handle_inbound(Mssg, St#state.protocol_state) of
+    case bondy_wamp_fsm:handle_inbound(Mssg, St#state.protocol_state) of
         {ok, PSt} ->
             handle_data(Rest, St#state{protocol_state = PSt});
         {reply, L, PSt} ->
@@ -406,7 +424,7 @@ handle_data(Data, St) ->
     | {stop, normal, state()}.
 
 handle_outbound(M, St0) ->
-    case bondy_wamp_protocol:handle_outbound(M, St0#state.protocol_state) of
+    case bondy_wamp_fsm:handle_outbound(M, St0#state.protocol_state) of
         {ok, Bin, PSt} ->
             St1 = St0#state{protocol_state = PSt},
             case send(Bin, St1) of
@@ -457,49 +475,27 @@ init_wamp(Len, Enc, St0) ->
     MaxLen = validate_max_len(Len),
     {FrameType, EncName} = validate_encoding(Enc),
 
-    case inet:peername(St0#state.socket) of
-        {ok, {_, _} = Peer} ->
-            Proto = {raw, FrameType, EncName},
+    {ok, {_, _} = Peer} = inet:peername(St0#state.socket),
+    Proto = {raw, FrameType, EncName},
 
-            case bondy_wamp_protocol:init(Proto, Peer, #{}) of
-                {ok, CBState} ->
-                    St1 = St0#state{
-                        frame_type = FrameType,
-                        encoding = EncName,
-                        max_len = MaxLen,
-                        protocol_state = CBState
-                    },
+    case bondy_wamp_fsm:init(Proto, Peer, #{}) of
+        {ok, CBState} ->
+            St1 = St0#state{
+                frame_type = FrameType,
+                encoding = EncName,
+                max_len = MaxLen,
+                protocol_state = CBState
+            },
 
-                    ok = send_frame(
-                        <<?RAW_MAGIC, Len:4, Enc:4, 0:8, 0:8>>, St1
-                    ),
-
-                    _ = log(info, "Established connection with peer;", [], St1),
-                    {ok, St1};
-                {error, Reason} ->
-                    {stop, Reason, St0}
-            end;
-
-        {ok, NonIPAddr} ->
-            _ = lager:error(
-                "Unexpected peername when establishing connection,"
-                " received a non IP address of '~p'; reason=invalid_socket,"
-                " protocol=wamp, transport=raw, frame_type=~p, encoding=~p,"
-                " message_max_length=~p",
-                [NonIPAddr, FrameType, EncName, MaxLen]
+            ok = send_frame(
+                <<?RAW_MAGIC, Len:4, Enc:4, 0:8, 0:8>>, St1
             ),
-            {stop, invalid_socket, St0};
 
+            _ = log(info, "Established connection with peer;", [], St1),
+            {ok, St1};
         {error, Reason} ->
-            _ = lager:error(
-                "Invalid peername when establishing connection,"
-                " reason=~p, description=~p, protocol=wamp, transport=raw,"
-                " frame_type=~p, encoding=~p, message_max_length=~p",
-                [Reason, inet:format_error(Reason), FrameType, EncName, MaxLen]
-            ),
-            {stop, invalid_socket, St0}
+            {stop, Reason, St0}
     end.
-
 
 %% -----------------------------------------------------------------------------
 %% @private
@@ -580,17 +576,18 @@ when is_binary(Prefix) orelse is_list(Prefix), is_list(Head) ->
     Format = iolist_to_binary([
         Prefix,
         <<
-            " session_id=~p, peername=~s, agent=~p"
+            " session_id=~p, peername=~s, real_peername=~s, agent=~p"
             ", protocol=wamp, transport=raw, frame_type=~p, encoding=~p"
             ", message_max_length=~p, socket=~p"
         >>
     ]),
-    SessionId = bondy_wamp_protocol:session_id(St#state.protocol_state),
-    Agent = bondy_wamp_protocol:agent(St#state.protocol_state),
+    SessionId = bondy_wamp_fsm:session_id(St#state.protocol_state),
+    Agent = bondy_wamp_fsm:agent(St#state.protocol_state),
 
     Tail = [
         SessionId,
         St#state.peername,
+        St#state.real_peername,
         Agent,
         St#state.frame_type,
         St#state.encoding,
@@ -775,3 +772,26 @@ send_frame(ranch_tcp, Socket, Data, Opts) when is_port(Socket) ->
 send_frame(Transport, Socket, Data, _Opts) ->
     Transport:send(Socket, Data).
 
+
+peername(Socket) ->
+    case inet:peername(Socket) of
+        {ok, {_, _} = Peer} ->
+            inet_utils:peername_to_binary(Peer);
+
+        {ok, NonIPAddr} ->
+            _ = lager:error(
+                "Unexpected peername when establishing connection,"
+                " received a non IP address of '~p'; reason=invalid_socket,"
+                " protocol=wamp, transport=raw",
+                [NonIPAddr]
+            ),
+            error(invalid_socket);
+
+        {error, Reason} ->
+            _ = lager:error(
+                "Invalid peername when establishing connection,"
+                " reason=~p, description=~p, protocol=wamp, transport=raw",
+                [Reason, inet:format_error(Reason)]
+            ),
+            error(invalid_socket)
+    end.

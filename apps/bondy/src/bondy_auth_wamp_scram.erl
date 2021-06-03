@@ -146,7 +146,7 @@ authenticate(Signature, _Extra, Ctxt, State) ->
 
         %% We need to check that:
         %% - The `AUTHENTICATE` message was received in due time (should be done
-        %% already by bondy_wamp_protocol
+        %% already by bondy_wamp_fsm
         %% - nonce matches the one previously sent via CHALLENGE.
         %% - The channel_binding matches the one sent in the HELLO message.
         %% - The cbind_data sent by the client matches the channel binding data

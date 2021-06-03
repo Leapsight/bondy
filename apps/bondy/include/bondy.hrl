@@ -115,21 +115,23 @@
 
 -type local_peer_id()   ::  {
     Realm       ::  binary(),
+    SessionId   ::  integer(),
     Node        ::  atom(),
-    SessionId   ::  integer() | undefined,
     Pid         ::  pid()
 }.
+
 -type remote_peer_id()  ::  {
     Realm       ::  binary(),
+    SessionId   ::  integer(),
     Node        ::  atom(),
-    SessionId   ::  integer() | undefined,
     Pid         ::  pid() | list() |undefined
 }.
--type peer_id()         ::  local_peer_id() | remote_peer_id().
 
+-type peer_id()             ::  local_peer_id() | remote_peer_id().
 
+-type maybe_undefined(T)    ::  T | undefined.
 
-
+-type peername()            ::  {inet:ip_address(), non_neg_integer()}.
 
 %% =============================================================================
 %% UTILS
