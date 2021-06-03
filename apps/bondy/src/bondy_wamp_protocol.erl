@@ -33,9 +33,8 @@
 
 -record(wamp_state, {
     subprotocol             ::  subprotocol() | undefined,
-    authmethod              ::  any(),
     challenge               ::  binary() | undefined,
-    auth_context    ::  map() | undefined,
+    auth_context            ::  map() | undefined,
     auth_timestamp          ::  integer() | undefined,
     state_name = closed     ::  state_name(),
     context                 ::  bondy_context:t() | undefined
@@ -403,12 +402,11 @@ handle_inbound_messages(
     %% Client is responding to a challenge
     ok = bondy_event_manager:notify({wamp, M, St0#wamp_state.context}),
 
-    AuthMethod = St0#wamp_state.authmethod,
     AuthCtxt0 = St0#wamp_state.auth_context,
     Signature = M#authenticate.signature,
     Extra = M#authenticate.extra,
 
-    case bondy_auth:authenticate(AuthMethod, Signature, Extra, AuthCtxt0) of
+    case bondy_auth:authenticate(Signature, Extra, AuthCtxt0) of
         {ok, WelcomeAuthExtra, AuthCtxt1} ->
             St1 = St0#wamp_state{auth_context = AuthCtxt1},
             open_session(WelcomeAuthExtra, St1);
@@ -459,10 +457,7 @@ maybe_open_session({challenge, AuthMethod, Challenge, St0}) ->
     M = wamp_message:challenge(AuthMethod, Challenge),
     ok = bondy_event_manager:notify({wamp, M, St0#wamp_state.context}),
     Bin = wamp_encoding:encode(M, encoding(St0)),
-    St1 = St0#wamp_state{
-        state_name = challenging,
-        authmethod = AuthMethod
-    },
+    St1 = St0#wamp_state{state_name = challenging},
     {reply, Bin, St1};
 
 maybe_open_session({ok, St}) ->

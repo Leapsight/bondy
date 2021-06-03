@@ -61,6 +61,7 @@
 -export_type([requirements/0]).
 
 
+-export([authenticate/3]).
 -export([authenticate/4]).
 -export([method/1]).
 -export([provider/1]).
@@ -362,6 +363,22 @@ challenge(Method, DataIn, Ctxt0) ->
         throw:Reason ->
             {error, Reason}
     end.
+
+
+%% -----------------------------------------------------------------------------
+%% @doc
+%% @end
+%% -----------------------------------------------------------------------------
+-spec authenticate(
+    Signature :: binary(),
+    DataIn :: map(),
+    Ctxt :: context()) ->
+    {ok, ReturnExtra :: map(), NewCtxt :: context()}
+    | {error, Reason :: any()}.
+
+authenticate(Signature, DataIn, #{method := Method} = Ctxt) ->
+    authenticate(Method, Signature, DataIn, Ctxt).
+
 
 
 %% -----------------------------------------------------------------------------
