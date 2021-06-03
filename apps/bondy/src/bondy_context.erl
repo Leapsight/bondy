@@ -19,13 +19,12 @@
 
 
 %% =============================================================================
-%% @doc
-%% A Bondy Context lets you access information that defines the state of an
-%% interaction. In a typical interacion, several actors or objects have a hand
-%% in what is going on e.g. bondy_session, wamp_realm, etc.
+%% @doc The Bondy Context represents the current context of an interaction.
+%% It contains references to information specific to the interaction, such as
+%% the current WAMP peer, realm, current session, and current message.
 %%
-%% The Bondy Context is passed as an argument through the whole request-response
-%%  loop to provide access to that information.
+%% The Bondy Context is passed as an argument through the whole processing
+%% handling flow of a WAMP message to provide access to that information.
 %% @end
 %% =============================================================================
 -module(bondy_context).
@@ -52,8 +51,6 @@
     request_timestamp => integer(),
     request_timeout => non_neg_integer(),
     request_details => map(),
-    is_closing => boolean(),
-    is_shutting_down => boolean(),
     %% Metadata
     user_info => map()
 }.
@@ -69,8 +66,6 @@
 -export([id/1]).
 -export([is_anonymous/1]).
 -export([is_feature_enabled/3]).
--export([is_closing/1]).
--export([is_shutting_down/1]).
 -export([local_context/1]).
 -export([new/0]).
 -export([new/2]).
@@ -177,11 +172,7 @@ close(Ctxt0) ->
 %% -----------------------------------------------------------------------------
 -spec close(t(), Reason :: normal | crash | shutdown) -> ok.
 
-close(Ctxt0, Reason) ->
-    Ctxt = Ctxt0#{
-        is_closing => true,
-        is_shutting_down => Reason =:= shutdown
-    },
+close(Ctxt, _Reason) ->
     %% We cleanup router first as cleanup requires the session
     case maps:find(session, Ctxt) of
         {ok, Session} ->
@@ -516,27 +507,6 @@ is_feature_enabled(Ctxt, Role, Feature) ->
 is_anonymous(Ctxt) ->
     maps:get(is_anonymous, Ctxt, false).
 
-
-%% -----------------------------------------------------------------------------
-%% @doc
-%% Returns true if the context and session are closing.
-%% @end
-%% -----------------------------------------------------------------------------
--spec is_closing(t()) -> boolean().
-
-is_closing(Ctxt) ->
-    maps:get(is_closing, Ctxt, false).
-
-
-%% -----------------------------------------------------------------------------
-%% @doc
-%% Returns true if bondy is shutting down
-%% @end
-%% -----------------------------------------------------------------------------
--spec is_shutting_down(t()) -> boolean().
-
-is_shutting_down(Ctxt) ->
-    maps:get(is_shutting_down, Ctxt, false).
 
 
 %% -----------------------------------------------------------------------------
