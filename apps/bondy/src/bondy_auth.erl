@@ -33,16 +33,16 @@
 -type context()         ::  #{
     session_id := id() | undefined,
     realm_uri := uri(),
-    user := bondy_rbac_user:t() | undefined,
     user_id := binary() | undefined,
-    available_methods := [binary()],
     role := binary(),
     roles := [binary()],
-    conn_ip := [{ip, inet:ip_address()}],
     provider => binary(),
     method => binary(),
+    conn_ip := [{ip, inet:ip_address()}],
+    available_methods := [binary()],
     callback_mod => module(),
-    callback_mod_state => term()
+    callback_mod_state => term(),
+    user := bondy_rbac_user:t() | undefined
 }.
 
 %% TODO change to
