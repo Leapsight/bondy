@@ -45,7 +45,7 @@
     ping_max_attempts = 2   ::  non_neg_integer(),
     hibernate = false       ::  boolean(),
     start_time              ::  integer(),
-    protocol_state          ::  bondy_wamp_fsm:state() | undefined,
+    fsm_state               ::  bondy_wamp_fsm:state() | undefined,
     active_n = once         ::  once | -32768..32767,
     buffer = <<>>           ::  binary(),
     shutdown_reason         ::  term() | undefined
@@ -149,7 +149,7 @@ handle_info({inet_reply, _, Status}, State) ->
 
 handle_info(
     {tcp, Socket, <<?RAW_MAGIC:8, MaxLen:4, Encoding:4, _:16>>},
-    #state{socket = Socket, protocol_state = undefined} = St0) ->
+    #state{socket = Socket, fsm_state = undefined} = St0) ->
     case handle_handshake(MaxLen, Encoding, St0) of
         {ok, St1} ->
             case maybe_active_once(St1) of
@@ -164,7 +164,7 @@ handle_info(
 
 handle_info(
     {tcp, Socket, Data},
-    #state{socket = Socket, protocol_state = undefined} = St) ->
+    #state{socket = Socket, fsm_state = undefined} = St) ->
     %% RFC: After a _Client_ has connected to a _Router_, the _Router_ will
     %% first receive the 4 octets handshake request from the _Client_.
     %% If the _first octet_ differs from "0x7F", it is not a WAMP-over-
@@ -258,9 +258,9 @@ when T =/= undefined andalso S =/= undefined ->
     ok = close_socket(Reason, State),
     terminate(Reason, State#state{transport = undefined, socket = undefined});
 
-terminate(Reason, #state{protocol_state = P} = State) when P =/= undefined ->
+terminate(Reason, #state{fsm_state = P} = State) when P =/= undefined ->
     ok = bondy_wamp_fsm:terminate(P),
-    terminate(Reason, State#state{protocol_state = undefined});
+    terminate(Reason, State#state{fsm_state = undefined});
 
 terminate(_, _) ->
     ok.
@@ -339,26 +339,26 @@ when byte_size(Data) >= Len ->
     %% We received a WAMP message
     %% Len is the number of octets after serialization
     <<Mssg:Len/binary, Rest/binary>> = Data,
-    case bondy_wamp_fsm:handle_inbound(Mssg, St#state.protocol_state) of
+    case bondy_wamp_fsm:handle_inbound(Mssg, St#state.fsm_state) of
         {ok, PSt} ->
-            handle_data(Rest, St#state{protocol_state = PSt});
+            handle_data(Rest, St#state{fsm_state = PSt});
         {reply, L, PSt} ->
-            St1 = St#state{protocol_state = PSt},
+            St1 = St#state{fsm_state = PSt},
             ok = send(L, St1),
             handle_data(Rest, St1);
         {stop, PSt} ->
-            {stop, normal, St#state{protocol_state = PSt}};
+            {stop, normal, St#state{fsm_state = PSt}};
         {stop, L, PSt} ->
-            St1 = St#state{protocol_state = PSt},
+            St1 = St#state{fsm_state = PSt},
             ok = send(L, St1),
             {stop, normal, St1};
         {stop, normal, L, PSt} ->
-            St1 = St#state{protocol_state = PSt},
+            St1 = St#state{fsm_state = PSt},
             ok = send(L, St1),
             {stop, normal, St1};
         {stop, Reason, L, PSt} ->
             St1 = St#state{
-                protocol_state = PSt,
+                fsm_state = PSt,
                 shutdown_reason = Reason
             },
             ok = send(L, St1),
@@ -424,9 +424,9 @@ handle_data(Data, St) ->
     | {stop, normal, state()}.
 
 handle_outbound(M, St0) ->
-    case bondy_wamp_fsm:handle_outbound(M, St0#state.protocol_state) of
+    case bondy_wamp_fsm:handle_outbound(M, St0#state.fsm_state) of
         {ok, Bin, PSt} ->
-            St1 = St0#state{protocol_state = PSt},
+            St1 = St0#state{fsm_state = PSt},
             case send(Bin, St1) of
                 ok ->
                     {noreply, St1, ?TIMEOUT};
@@ -434,9 +434,9 @@ handle_outbound(M, St0) ->
                     {stop, Reason, St1}
             end;
         {stop, PSt} ->
-            {stop, normal, St0#state{protocol_state = PSt}};
+            {stop, normal, St0#state{fsm_state = PSt}};
         {stop, Bin, PSt} ->
-            St1 = St0#state{protocol_state = PSt},
+            St1 = St0#state{fsm_state = PSt},
             case send(Bin, St1) of
                 ok ->
                     {stop, normal, St1};
@@ -446,7 +446,7 @@ handle_outbound(M, St0) ->
 
         {stop, Bin, PSt, Time} when is_integer(Time), Time > 0 ->
             %% We send ourselves a message to stop after Time
-            St1 = St0#state{protocol_state = PSt},
+            St1 = St0#state{fsm_state = PSt},
             erlang:send_after(
                 Time, self(), {stop, normal}),
             case send(Bin, St1) of
@@ -484,7 +484,7 @@ init_wamp(Len, Enc, St0) ->
                 frame_type = FrameType,
                 encoding = EncName,
                 max_len = MaxLen,
-                protocol_state = CBState
+                fsm_state = CBState
             },
 
             ok = send_frame(
@@ -567,7 +567,7 @@ error_number(maximum_connection_count_reached) ->?RAW_ERROR(4).
 %% error_reason(4) -> maximum_connection_count_reached.
 
 %% @private
-log(Level, Format, Args, #state{protocol_state = undefined})
+log(Level, Format, Args, #state{fsm_state = undefined})
 when is_binary(Format) orelse is_list(Format), is_list(Args) ->
     lager:log(Level, self(), Format, Args);
 
@@ -581,8 +581,8 @@ when is_binary(Prefix) orelse is_list(Prefix), is_list(Head) ->
             ", message_max_length=~p, socket=~p"
         >>
     ]),
-    SessionId = bondy_wamp_fsm:session_id(St#state.protocol_state),
-    Agent = bondy_wamp_fsm:agent(St#state.protocol_state),
+    SessionId = bondy_wamp_fsm:session_id(St#state.fsm_state),
+    Agent = bondy_wamp_fsm:agent(St#state.fsm_state),
 
     Tail = [
         SessionId,
