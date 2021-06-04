@@ -607,13 +607,13 @@ match(Type, Uri, RealmUri, Opts) ->
         Trie = trie(Type),
         Pattern = <<RealmUri/binary, $,, Uri/binary>>,
         MS = trie_ms(Opts),
-        Result = art_server:find_matches(Pattern, MS, Trie),
+        Result = find_matches(Pattern, MS, Trie, 0),
         lookup_entries(Type, {Result, ?EOT})
     catch
         throw:non_eligible_entries ->
             {[], ?EOT};
         error:badarg:Stacktrace ->
-            %% @TODO this will be fixed when art provides persistent tries
+            %% TODO this will be fixed when art provides persistent tries
             _ = lager:warning(
                 "Error while searching trie; stacktrace=~p",
                 [Stacktrace]
@@ -1093,6 +1093,17 @@ trie_ms(Opts) ->
                     {{'_', '_', '$3', '_'}, '_'}, Conds3, ['$_']
                 }
             ]
+    end.
+
+
+%% @private
+find_matches(Pattern, MS, Trie, Retries) ->
+    try
+        art_server:find_matches(Pattern, MS, Trie)
+    catch
+        error:badarg when Retries < 3 ->
+            %% TODO this will be fixed when art provides persistent tries
+            find_matches(Pattern, MS, Trie, Retries + 1)
     end.
 
 
