@@ -129,7 +129,7 @@
 
 -type peer_id()             ::  local_peer_id() | remote_peer_id().
 
--type maybe_undefined(T)    ::  T | undefined.
+-type maybe(T)    ::  T | undefined.
 
 -type peername()            ::  {inet:ip_address(), non_neg_integer()}.
 

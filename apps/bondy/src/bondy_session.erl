@@ -86,6 +86,8 @@
     authid                          ::  binary() | undefined,
     authrole                        ::  binary() | undefined,
     authmethod                      ::  binary() | undefined,
+    peername                        ::  maybe(peername()),
+    real_peername                   ::  maybe(peername()),
     %% Expiration and Limits
     created                         ::  calendar:date_time(),
     expires_in                      ::  pos_integer() | infinity,

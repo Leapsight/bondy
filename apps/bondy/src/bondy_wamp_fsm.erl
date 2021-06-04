@@ -32,16 +32,17 @@
 -define(IS_TRANSPORT(X), (T =:= ws orelse T =:= raw)).
 
 -record(wamp_fsm_state, {
-    subprotocol             ::  subprotocol() | undefined,
-    challenge               ::  binary() | undefined,
-    auth_context            ::  map() | undefined,
-    auth_timestamp          ::  integer() | undefined,
     state_name = closed     ::  state_name(),
-    context                 ::  bondy_context:t() | undefined
+    session                 ::  maybe(bondy_session:t()),
+    context                 ::  maybe(bondy_context:t()), % To be deprecated
+    subprotocol             ::  maybe(subprotocol()),
+    challenge               ::  maybe(binary()),
+    auth_context            ::  maybe(map()),
+    auth_timestamp          ::  maybe(integer())
 }).
 
 
--type state()               ::  #wamp_fsm_state{} | undefined.
+-type state()               ::  maybe(#wamp_fsm_state{}).
 -type state_name()          ::  closed
                                 | establishing
                                 | challenging
