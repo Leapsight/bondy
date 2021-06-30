@@ -744,7 +744,7 @@ cowboy_opts(Routes, Name) ->
 start_https(Routes, Name) ->
     {TransportOpts, ProtoOpts} = cowboy_opts(Routes, Name),
 
-    case cowboy:start_tls(Name, TransportOpts, ProtoOpts) of
+    case cowboy:start_tls(Name, TransportOpts, ProtocolOpts) of
         {ok, _} ->
             ok;
         {error, eaddrinuse} ->
