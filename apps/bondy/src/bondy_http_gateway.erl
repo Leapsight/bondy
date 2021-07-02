@@ -707,34 +707,6 @@ maybe_start_https(Routes, Name) ->
     end.
 
 
-cowboy_opts(Routes, Name) ->
-    {TransportOpts, _OtherTransportOpts}  = transport_opts(Name),
-    ProtocolOpts = #{
-        env => #{
-            bondy => #{
-                auth => #{
-                    %% REVIEW this in light of recent changes to auth methods
-                    schemes => [basic, bearer]
-                }
-            },
-            dispatch => cowboy_router:compile(Routes)
-        },
-        metrics_callback => fun bondy_prometheus_cowboy_collector:observe/1,
-        %% cowboy_metrics_h must be first on the list
-        stream_handlers => [
-            cowboy_metrics_h,
-            cowboy_compress_h,
-            cowboy_stream_h
-        ],
-        middlewares => [
-            cowboy_router,
-            cowboy_handler
-        ]
-    },
-    {TransportOpts, ProtocolOpts}.
-
-
-
 %% -----------------------------------------------------------------------------
 %% @doc
 %% @end
@@ -963,11 +935,39 @@ maybe_init_groups(RealmUri) ->
     ok.
 
 
+cowboy_opts(Routes, Name) ->
+    {TransportOpts, _OtherTransportOpts}  = transport_opts(Name),
+    ProtocolOpts = #{
+        env => #{
+            bondy => #{
+                auth => #{
+                    %% REVIEW this in light of recent changes to auth methods
+                    schemes => [basic, bearer]
+                }
+            },
+            dispatch => cowboy_router:compile(Routes)
+        },
+        metrics_callback => fun bondy_prometheus_cowboy_collector:observe/1,
+        %% cowboy_metrics_h must be first on the list
+        stream_handlers => [
+            cowboy_metrics_h,
+            cowboy_compress_h,
+            cowboy_stream_h
+        ],
+        middlewares => [
+            cowboy_router,
+            cowboy_handler
+        ]
+    },
+    {TransportOpts, ProtocolOpts}.
+
+
 transport_opts(Name) ->
     Opts = bondy_config:get(Name),
     {_, Port} = lists:keyfind(port, 1, Opts),
     {_, PoolSize} = lists:keyfind(acceptors_pool_size, 1, Opts),
     {_, MaxConnections} = lists:keyfind(max_connections, 1, Opts),
+    {_, ProxyProtocol} = lists:keyfind(proxy_protocol, 1, Opts),
 
     %% In ranch 2.0 we will need to use socket_opts directly
     {SocketOpts, OtherSocketOpts} = case lists:keyfind(socket_opts, 1, Opts) of
@@ -978,7 +978,8 @@ transport_opts(Name) ->
     TransportOpts = #{
         num_acceptors => PoolSize,
         max_connections =>  MaxConnections,
-        socket_opts => [{port, Port} | SocketOpts]
+        socket_opts => [{port, Port} | SocketOpts],
+        proxy_header => ProxyProtocol
     },
     {TransportOpts, OtherSocketOpts}.
 

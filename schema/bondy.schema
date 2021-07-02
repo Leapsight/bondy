@@ -454,7 +454,7 @@ hidden
   {datatype, {flag, on, off}}
 ]}.
 
-{mapping, "admin_api.http.proxy_protocol.enabled", "bondy.admin_api_http.proxy_protocol_enabled", [
+{mapping, "admin_api.http.proxy_protocol", "bondy.admin_api_http.proxy_protocol", [
 {default, off},
 {datatype, {flag, on, off}}
 ]}.
@@ -536,7 +536,7 @@ hidden
   {datatype, {flag, on, off}}
 ]}.
 
-{mapping, "admin_api.https.proxy_protocol.enabled", "bondy.admin_api_https.proxy_protocol_enabled", [
+{mapping, "admin_api.https.proxy_protocol", "bondy.admin_api_https.proxy_protocol", [
 {default, off},
 {datatype, {flag, on, off}}
 ]}.
@@ -674,7 +674,7 @@ hidden
   {datatype, {flag, on, off}}
 ]}.
 
-{mapping, "api_gateway.http.proxy_protocol.enabled", "bondy.api_gateway_http.proxy_protocol_enabled", [
+{mapping, "api_gateway.http.proxy_protocol", "bondy.api_gateway_http.proxy_protocol", [
 {default, off},
 {datatype, {flag, on, off}}
 ]}.
@@ -771,7 +771,7 @@ hidden
   {datatype, {flag, on, off}}
 ]}.
 
-{mapping, "api_gateway.https.proxy_protocol.enabled", "bondy.api_gateway_https.proxy_protocol_enabled", [
+{mapping, "api_gateway.https.proxy_protocol", "bondy.api_gateway_https.proxy_protocol", [
 {default, off},
 {datatype, {flag, on, off}}
 ]}.
@@ -956,7 +956,7 @@ hidden
 %% =============================================================================
 
 
-{mapping, "wamp.websocket.proxy_protocol.enabled", "bondy.wamp_websocket.proxy_protocol_enabled", [
+{mapping, "wamp.websocket.proxy_protocol", "bondy.wamp_websocket.proxy_protocol", [
   {default, off},
   {datatype, {flag, on, off}}
 ]}.
@@ -1165,7 +1165,7 @@ hidden
   {datatype, {flag, on, off}}
 ]}.
 
-{mapping, "wamp.tcp.proxy_protocol.enabled", "bondy.wamp_tcp.proxy_protocol_enabled", [
+{mapping, "wamp.tcp.proxy_protocol", "bondy.wamp_tcp.proxy_protocol", [
 {default, off},
 {datatype, {flag, on, off}}
 ]}.
@@ -1251,7 +1251,7 @@ hidden
   {datatype, {flag, on, off}}
 ]}.
 
-{mapping, "wamp.tls.proxy_protocol.enabled", "bondy.wamp_tls.proxy_protocol_enabled", [
+{mapping, "wamp.tls.proxy_protocol", "bondy.wamp_tls.proxy_protocol", [
   {default, off},
   {datatype, {flag, on, off}}
 ]}.

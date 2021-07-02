@@ -286,7 +286,7 @@ ranch_handshake(Ref, Transport) ->
     %% It expects the listener’s name as argument.
     % ok = ranch:accept_ack(Ref),
 
-    Info = case bondy_config:get([Ref, proxy_protocol_enabled], false) of
+    Info = case bondy_config:get([Ref, proxy_protocol], false) of
         true ->
             {ok, ProxyInfo} = maybe_error(ranch:recv_proxy_header(Ref, 1000)),
             ProxyInfo;
